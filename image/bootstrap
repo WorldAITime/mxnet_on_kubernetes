@@ -1,0 +1,97 @@
+#!/usr/bin/python
+
+from kubernetes import client,config
+import os
+import json
+import time
+import subprocess
+import sys
+import gflags
+
+FLAGS = gflags.FLAGS
+
+gflags.DEFINE_string('cmd', 'python train_mnist.py', 'cmd to start the training job')
+gflags.DEFINE_string('job_name', 'job', 'name of the job')
+gflags.DEFINE_integer('worker_num', 1, 'num of the worker') 
+
+namespace = os.environ["NAMESPACE"]
+localIp = os.environ["POD_IP"]
+
+cmd = ""
+
+config.load_incluster_config()
+v1 = client.CoreV1Api()
+
+def getHostsStr():
+  hostsStr = ""
+
+  isChef = False
+
+  ps_pods = v1.list_namespaced_pod(namespace, label_selector="job=" + FLAGS.job_name)
+  items = ps_pods.items
+  if (len(items) < FLAGS.worker_num):
+    return False, "", False
+  for i in range(0, len(items)):
+    try:
+      podIp = items[i].status.pod_ip
+      if (i == 0 and podIp == localIp):
+        isChef = True
+      hostsStr = hostsStr + "\n" + podIp
+    except Exception as err:
+      return False, "", isChef
+  return True, hostsStr, isChef
+
+def startSSH():
+  cmd = "service ssh start"
+  subp = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+  while subp.poll()==None:
+    print subp.stdout.readline()
+
+def execCommand(hostsStr):
+  cmd = "python ./mxnet/tools/launch.py -n %d --launcher ssh -H hosts %s"%(FLAGS.worker_num, FLAGS.cmd)
+  print("the cmd to start the job: " + cmd)
+  subp = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+  while subp.poll()==None:
+    print subp.stdout.readline()
+  print subp.returncode
+
+def waitOrExit():
+  while True:
+    time.sleep(3)
+    ps_pods = v1.list_namespaced_pod(namespace, label_selector="job=" + FLAGS.job_name)
+    items = ps_pods.items
+    if (items[0].status.phase != "Running"):
+      print("job finished, exit...")
+      return
+
+def writeHostsFile(hostsStr):
+  fsock = open("hosts", "a")
+  fsock.write(hostsStr)
+  fsock.close()
+
+if __name__=="__main__":
+
+  FLAGS(sys.argv)
+  startSSH()
+
+  isParamReady = False
+  hostsStr = ""
+  isChef = False
+  
+  for i in range(0, 100):
+
+    time.sleep(3)
+
+    isParamReady, hostsStr, isChef = getHostsStr()
+    if (isParamReady == False):
+      print("failed to prepare Hosts, try it later.")
+      continue
+
+    break
+  
+  writeHostsFile(hostsStr) 
+
+  if (isParamReady == True and isChef == True):
+    execCommand(hostsStr)
+  else:
+    waitOrExit()

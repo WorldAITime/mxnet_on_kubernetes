@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mxnet
+  labels:
+    name: mxnet
+    job: mnist
+spec:
+  completions: 2
+  parallelism: 2
+  template:
+    metadata:
+      name: mxnet
+      labels:
+        name: mxnet
+        job: mnist
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mnist
+          image: IMAGE
+          imagePullPolicy: Always
+          command: ["bootstrap"]
+          args:
+          - --worker_num=2
+          - --job_name=mnist
+          - --cmd=python ./mxnet/example/image-classification/train_mnist.py --network lenet --kv-store dist_sync
+          env:
+            - name: PYTHONUNBUFFERED
+              value: '1'
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+          - containerPort: 22

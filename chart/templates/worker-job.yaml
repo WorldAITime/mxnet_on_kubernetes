@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "fullname" . }}
+  labels:
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+    release: {{ .Release.Name }}
+spec:
+  completions: {{ .Values.replicaCount }}
+  parallelism: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        name: {{ template "fullname" . }}
+        release: {{ .Release.Name }}
+        job: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["bootstrap"]
+          args:
+          - --worker_num={{ .Values.replicaCount }}
+          - --job_name={{ .Release.Name }}
+          - --cmd={{ .Values.cmd }}
+          env:
+            - name: PYTHONUNBUFFERED
+              value: '1'
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+          - containerPort: 22
